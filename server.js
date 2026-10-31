@@ -60,6 +60,11 @@ io.on('connection', (socket) => {
     socket.on('player-move', (data) => {
         socket.to(data.roomCode).emit('opponent-move', data);
     });
+
+    // Quando un giocatore muore in multiplayer, avvisa l'avversario
+    socket.on('player-died', (data) => {
+        socket.to(data.roomCode).emit('opponent-died');
+    });
 });
 
 server.listen(PORT, () => {
