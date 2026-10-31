@@ -4,49 +4,64 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: { origin: "*" }
+});
 
-const rooms = {};
+const PORT = process.env.PORT || 3000;
+
+// Memoria globale dei punteggi dei giocatori
+let globalLeaderboard = [];
 
 io.on('connection', (socket) => {
-    console.log('Un giocatore si è connesso:', socket.id);
+    // Invia subito la classifica aggiornata al nuovo giocatore
+    socket.emit('update-leaderboard', globalLeaderboard);
 
-    // Crea una stanza con il codice
-    socket.on('create-room', (roomCode) => {
-        if (rooms[roomCode]) {
-            socket.emit('room-error', 'Questa stanza esiste già!');
+    // Ricezione nuovo record da un giocatore
+    socket.on('submit-score', (data) => {
+        if (!data.name || !data.score) return;
+        
+        let existingUser = globalLeaderboard.find(u => u.name.toLowerCase() === data.name.toLowerCase());
+        if (existingUser) {
+            if (data.score > existingUser.score) {
+                existingUser.score = data.score;
+            }
         } else {
-            rooms[roomCode] = { players: [socket.id] };
-            socket.join(roomCode);
-            socket.emit('room-created', roomCode);
-            console.log(`Stanza creata: ${roomCode}`);
+            globalLeaderboard.push({ name: data.name, score: data.score });
+        }
+        
+        // Ordina dal livello più alto a quello più basso
+        globalLeaderboard.sort((a, b) => b.score - a.score);
+        
+        // Mantiene solo i primi 20 in classifica
+        globalLeaderboard = globalLeaderboard.slice(0, 20);
+
+        // Invia la classifica aggiornata a TUTTI i giocatori connessi
+        io.emit('update-leaderboard', globalLeaderboard);
+    });
+
+    // Gestione Stanze Multiplayer
+    socket.on('create-room', (code) => {
+        socket.join(code);
+        socket.emit('room-created', code);
+    });
+
+    socket.on('join-room', (code) => {
+        const room = io.sockets.adapter.rooms.get(code);
+        if (room && room.size === 1) {
+            socket.join(code);
+            socket.emit('room-joined', code);
+            io.to(code).emit('start-multiplayer-game');
+        } else {
+            socket.emit('room-error', 'Stanza piena o non esistente!');
         }
     });
 
-    // Entra in una stanza esistente con il codice
-    socket.on('join-room', (roomCode) => {
-        let room = rooms[roomCode];
-        if (room && room.players.length < 2) {
-            room.players.push(socket.id);
-            socket.join(roomCode);
-            socket.emit('room-joined', roomCode);
-            io.to(roomCode).emit('start-multiplayer-game');
-            console.log(`Giocatore entrato nella stanza: ${roomCode}`);
-        } else {
-            socket.emit('room-error', 'Stanza piena o inesistente!');
-        }
-    });
-
-    // Sincronizzazione dei movimenti in tempo reale
     socket.on('player-move', (data) => {
         socket.to(data.roomCode).emit('opponent-move', data);
     });
-
-    socket.on('disconnect', () => {
-        console.log('Giocatore disconnesso:', socket.id);
-    });
 });
 
-server.listen(3000, () => {
-    console.log('Server in ascolto sulla porta 3000');
+server.listen(PORT, () => {
+    console.log(`Server in ascolto sulla porta ${PORT}`);
 });
