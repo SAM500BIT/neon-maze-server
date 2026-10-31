@@ -57,6 +57,7 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Inoltra movimento, punteggio, skin e scia all'avversario
     socket.on('player-move', (data) => {
         socket.to(data.roomCode).emit('opponent-move', data);
     });
